@@ -160,8 +160,10 @@ def extract_kv_at_position(
     else:
         raise TypeError(f"Unsupported past_key_values type: {type(past_key_values)}")
 
-    # batch dim ?쒓굅, position ?좏깮
-    return k[0, :, position, :].detach(), v[0, :, position, :].detach()
+    # batch dim ?쒓굅, position ?좏깮 (clamp to valid range)
+    max_pos = k.shape[2] - 1
+    pos = position if position <= max_pos else max_pos
+    return k[0, :, pos, :].detach(), v[0, :, pos, :].detach()
 
 
 def get_num_layers(past_key_values) -> int:
