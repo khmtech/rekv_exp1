@@ -153,7 +153,10 @@ def extract_kv_at_position(
     return k[0, :, position, :].detach(), v[0, :, position, :].detach()
 
 
-def get_num_layers(past_key_values) -> int:`r`n    """KV cache??layer ??諛섑솚."""`r`n    past_key_values = _normalize_past_kv(past_key_values)`r`n    if hasattr(past_key_values, 'key_cache'):
+def get_num_layers(past_key_values) -> int:
+    """KV cache??layer ??諛섑솚."""
+    past_key_values = _normalize_past_kv(past_key_values)
+    if hasattr(past_key_values, "key_cache"):
         return len(past_key_values.key_cache)
     elif isinstance(past_key_values, (tuple, list)):
         return len(past_key_values)
