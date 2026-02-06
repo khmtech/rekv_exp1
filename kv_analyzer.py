@@ -1,24 +1,23 @@
-"""
+﻿"""
 kv_analyzer.py - Core KV Similarity Analysis for Speculative Decoding
 =====================================================================
 
-Draft/Target 모델의 KV cache를 position-level로 추출하고 비교하는 핵심 모듈.
+Draft/Target 紐⑤뜽??KV cache瑜?position-level濡?異붿텧?섍퀬 鍮꾧탳?섎뒗 ?듭떖 紐⑤뱢.
 
-HuggingFace의 `past_key_values` 반환값을 직접 사용하여 KV를 추출한다.
-Hook이 아닌 model output에서 직접 가져오므로 아키텍처 호환성이 높다.
+HuggingFace??`past_key_values` 諛섑솚媛믪쓣 吏곸젒 ?ъ슜?섏뿬 KV瑜?異붿텧?쒕떎.
+Hook???꾨땶 model output?먯꽌 吏곸젒 媛?몄삤誘濡??꾪궎?띿쿂 ?명솚?깆씠 ?믩떎.
 
 Key design decisions:
-1. Draft와 Target의 layer 수가 다를 때 비례 매핑(proportional mapping)
-2. GQA로 인해 KV head 수가 다를 때 min heads로 비교
-3. Head dimension이 다를 때 truncation
-4. DynamicCache / tuple 형태 모두 지원
-"""
+1. Draft? Target??layer ?섍? ?ㅻ? ??鍮꾨? 留ㅽ븨(proportional mapping)
+2. GQA濡??명빐 KV head ?섍? ?ㅻ? ??min heads濡?鍮꾧탳
+3. Head dimension???ㅻ? ??truncation
+4. DynamicCache / tuple ?뺥깭 紐⑤몢 吏??"""
 
 import torch
 import torch.nn.functional as F
 import numpy as np
 from dataclasses import dataclass, field
-from typing import Optional, Tuple, List, Dict
+from typing import Optional, Tuple, List, Dict, Any
 
 
 # ============================================================
@@ -27,8 +26,8 @@ from typing import Optional, Tuple, List, Dict
 
 @dataclass
 class KVSimilarityResult:
-    """단일 position의 draft KV vs target KV 비교 결과."""
-    # Per-layer metrics: list of float (layer 차원)
+    """?⑥씪 position??draft KV vs target KV 鍮꾧탳 寃곌낵."""
+    # Per-layer metrics: list of float (layer 李⑥썝)
     key_cosine_per_layer: List[float] = field(default_factory=list)
     value_cosine_per_layer: List[float] = field(default_factory=list)
     key_l2_per_layer: List[float] = field(default_factory=list)
@@ -56,18 +55,17 @@ class KVSimilarityResult:
 
 @dataclass
 class RejectionEvent:
-    """Speculative decoding에서 단일 rejection 이벤트의 전체 정보."""
+    """Speculative decoding?먯꽌 ?⑥씪 rejection ?대깽?몄쓽 ?꾩껜 ?뺣낫."""
     sample_id: int
     round_id: int
     spec_length: int               # K: speculation window size
-    accept_length: int             # rejection 전까지 accept된 token 수
-    rejection_pos_in_window: int   # speculation window 내 rejection 위치 (0-indexed)
-    rejection_pos_in_seq: int      # 전체 sequence에서의 position
+    accept_length: int             # rejection ?꾧퉴吏 accept??token ??    rejection_pos_in_window: int   # speculation window ??rejection ?꾩튂 (0-indexed)
+    rejection_pos_in_seq: int      # ?꾩껜 sequence?먯꽌??position
     draft_token_id: int
     target_token_id: int
     draft_confidence: float        # P_draft(draft_token)
     target_confidence: float       # P_target(target_token)
-    draft_token_rank_in_target: int  # target 분포에서 draft token의 rank
+    draft_token_rank_in_target: int  # target 遺꾪룷?먯꽌 draft token??rank
     kv_sim: Optional[KVSimilarityResult] = None
 
     def to_dict(self) -> dict:
@@ -100,7 +98,7 @@ class RejectionEvent:
 
 @dataclass
 class RoundStats:
-    """Speculation round 통계."""
+    """Speculation round ?듦퀎."""
     sample_id: int
     round_id: int
     spec_length: int
@@ -114,15 +112,24 @@ class RoundStats:
 # KV Cache Utility Functions
 # ============================================================
 
+def _normalize_past_kv(past_key_values: Any):
+    """
+    Normalize HF cache types to a legacy tuple/list structure when needed.
+    Supports transformers.cache_utils.DynamicCache via to_legacy_cache().
+    """
+    if hasattr(past_key_values, "to_legacy_cache"):
+        return past_key_values.to_legacy_cache()
+    return past_key_values
+
 def extract_kv_at_position(
     past_key_values,
     layer_idx: int,
     position: int,
 ) -> Tuple[torch.Tensor, torch.Tensor]:
     """
-    past_key_values에서 특정 layer, position의 KV 벡터를 추출.
+    past_key_values?먯꽌 ?뱀젙 layer, position??KV 踰≫꽣瑜?異붿텧.
 
-    past_key_values 형태:
+    past_key_values ?뺥깭:
     - Tuple of (key, value): key/value shape = [batch, num_kv_heads, seq_len, head_dim]
     - DynamicCache: .key_cache[layer], .value_cache[layer]
 
@@ -130,6 +137,8 @@ def extract_kv_at_position(
         key: [num_kv_heads, head_dim]
         value: [num_kv_heads, head_dim]
     """
+    past_key_values = _normalize_past_kv(past_key_values)
+
     # DynamicCache (transformers >= 4.36)
     if hasattr(past_key_values, 'key_cache'):
         k = past_key_values.key_cache[layer_idx]   # [batch, heads, seq, dim]
@@ -140,13 +149,11 @@ def extract_kv_at_position(
     else:
         raise TypeError(f"Unsupported past_key_values type: {type(past_key_values)}")
 
-    # batch dim 제거, position 선택
+    # batch dim ?쒓굅, position ?좏깮
     return k[0, :, position, :].detach(), v[0, :, position, :].detach()
 
 
-def get_num_layers(past_key_values) -> int:
-    """KV cache의 layer 수 반환."""
-    if hasattr(past_key_values, 'key_cache'):
+def get_num_layers(past_key_values) -> int:`r`n    """KV cache??layer ??諛섑솚."""`r`n    past_key_values = _normalize_past_kv(past_key_values)`r`n    if hasattr(past_key_values, 'key_cache'):
         return len(past_key_values.key_cache)
     elif isinstance(past_key_values, (tuple, list)):
         return len(past_key_values)
@@ -159,19 +166,18 @@ def compute_layer_mapping(
     num_target_layers: int,
 ) -> List[Tuple[int, int]]:
     """
-    Draft layer와 Target layer 간 비례 매핑 생성.
+    Draft layer? Target layer 媛?鍮꾨? 留ㅽ븨 ?앹꽦.
 
-    예시:
-    - Draft 16 layers, Target 32 layers → [(0,0), (1,2), (2,4), ..., (15,30)]
-    - Draft 16 layers, Target 48 layers → [(0,0), (1,3), (2,6), ..., (15,45)]
+    ?덉떆:
+    - Draft 16 layers, Target 32 layers ??[(0,0), (1,2), (2,4), ..., (15,30)]
+    - Draft 16 layers, Target 48 layers ??[(0,0), (1,3), (2,6), ..., (15,45)]
 
     Returns:
         List of (draft_layer_idx, target_layer_idx) pairs
     """
     mapping = []
     for d in range(num_draft_layers):
-        # 비례 매핑: draft의 상대적 위치를 target으로 변환
-        t = round(d * (num_target_layers - 1) / (num_draft_layers - 1)) if num_draft_layers > 1 else 0
+        # 鍮꾨? 留ㅽ븨: draft???곷????꾩튂瑜?target?쇰줈 蹂??        t = round(d * (num_target_layers - 1) / (num_draft_layers - 1)) if num_draft_layers > 1 else 0
         mapping.append((d, t))
     return mapping
 
@@ -183,19 +189,21 @@ def compare_kv_at_position(
     layer_mapping: Optional[List[Tuple[int, int]]] = None,
 ) -> KVSimilarityResult:
     """
-    특정 position에서 draft와 target의 KV cache를 layer별, head별로 비교.
+    ?뱀젙 position?먯꽌 draft? target??KV cache瑜?layer蹂? head蹂꾨줈 鍮꾧탳.
 
-    Draft와 Target의 차이를 처리하는 방법:
-    - Layer 수 차이: layer_mapping에 따라 비례 매핑
-    - KV head 수 차이 (GQA): min(draft_heads, target_heads)까지 비교
-    - Head dim 차이: min(draft_dim, target_dim)까지 truncation
+    Draft? Target??李⑥씠瑜?泥섎━?섎뒗 諛⑸쾿:
+    - Layer ??李⑥씠: layer_mapping???곕씪 鍮꾨? 留ㅽ븨
+    - KV head ??李⑥씠 (GQA): min(draft_heads, target_heads)源뚯? 鍮꾧탳
+    - Head dim 李⑥씠: min(draft_dim, target_dim)源뚯? truncation
 
     Args:
-        draft_past_kv: draft model의 past_key_values
-        target_past_kv: target model의 past_key_values
-        position: 비교할 sequence position
-        layer_mapping: (draft_layer, target_layer) 쌍 리스트
-    """
+        draft_past_kv: draft model??past_key_values
+        target_past_kv: target model??past_key_values
+        position: 鍮꾧탳??sequence position
+        layer_mapping: (draft_layer, target_layer) ??由ъ뒪??    """
+    draft_past_kv = _normalize_past_kv(draft_past_kv)
+    target_past_kv = _normalize_past_kv(target_past_kv)
+
     num_draft_layers = get_num_layers(draft_past_kv)
     num_target_layers = get_num_layers(target_past_kv)
 
@@ -205,14 +213,12 @@ def compare_kv_at_position(
     result = KVSimilarityResult()
 
     for draft_l, target_l in layer_mapping:
-        # KV 추출: [num_kv_heads, head_dim]
+        # KV 異붿텧: [num_kv_heads, head_dim]
         dk, dv = extract_kv_at_position(draft_past_kv, draft_l, position)
         tk, tv = extract_kv_at_position(target_past_kv, target_l, position)
 
-        # Head 수 맞추기
-        min_heads = min(dk.shape[0], tk.shape[0])
-        # Head dim 맞추기
-        min_dim = min(dk.shape[1], tk.shape[1])
+        # Head ??留욎텛湲?        min_heads = min(dk.shape[0], tk.shape[0])
+        # Head dim 留욎텛湲?        min_dim = min(dk.shape[1], tk.shape[1])
 
         dk = dk[:min_heads, :min_dim].float()
         tk = tk[:min_heads, :min_dim].float()
@@ -250,8 +256,8 @@ def compute_random_baseline(
     num_samples: int = 100,
 ) -> Dict[str, float]:
     """
-    Random vector와 target KV 간 cosine similarity를 측정.
-    "Rejected KV가 random보다 얼마나 좋은가"의 baseline.
+    Random vector? target KV 媛?cosine similarity瑜?痢≪젙.
+    "Rejected KV媛 random蹂대떎 ?쇰쭏??醫뗭?媛"??baseline.
 
     Returns:
         {"key_cosine_mean": float, "value_cosine_mean": float}
@@ -281,3 +287,4 @@ def compute_random_baseline(
         "key_cosine_std": float(np.std(k_sims)),
         "value_cosine_std": float(np.std(v_sims)),
     }
+
