@@ -143,7 +143,11 @@ def extract_kv_at_position(
     past_key_values = _normalize_past_kv(past_key_values)
 
     # DynamicCache (transformers >= 4.36)
-    if hasattr(past_key_values, 'key_cache'):
+    if hasattr(past_key_values, "layers"):
+        layer = past_key_values.layers[layer_idx]
+        k = layer.keys
+        v = layer.values
+    elif hasattr(past_key_values, 'key_cache'):
         k = past_key_values.key_cache[layer_idx]   # [batch, heads, seq, dim]
         v = past_key_values.value_cache[layer_idx]
     # Some variants expose cache as list/tuple directly
@@ -162,7 +166,9 @@ def extract_kv_at_position(
 def get_num_layers(past_key_values) -> int:
     """KV cache??layer ??諛섑솚."""
     past_key_values = _normalize_past_kv(past_key_values)
-    if hasattr(past_key_values, "key_cache"):
+    if hasattr(past_key_values, "layers"):
+        return len(past_key_values.layers)
+    elif hasattr(past_key_values, "key_cache"):
         return len(past_key_values.key_cache)
     elif hasattr(past_key_values, "cache") and isinstance(past_key_values.cache, (tuple, list)):
         return len(past_key_values.cache)
