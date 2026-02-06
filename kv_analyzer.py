@@ -194,7 +194,8 @@ def compute_layer_mapping(
     """
     mapping = []
     for d in range(num_draft_layers):
-        # 鍮꾨? 留ㅽ븨: draft???곷????꾩튂瑜?target?쇰줈 蹂??        t = round(d * (num_target_layers - 1) / (num_draft_layers - 1)) if num_draft_layers > 1 else 0
+        # 鍮꾨? 留ㅽ븨: draft???곷????꾩튂瑜?target?쇰줈 蹂??
+        t = round(d * (num_target_layers - 1) / (num_draft_layers - 1)) if num_draft_layers > 1 else 0
         mapping.append((d, t))
     return mapping
 
