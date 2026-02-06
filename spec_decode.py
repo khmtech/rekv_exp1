@@ -34,6 +34,17 @@ from kv_analyzer import (
 )
 
 
+def _normalize_past_kv(past_key_values):
+    """
+    Normalize HF cache types to legacy tuple/list structure when available.
+    """
+    if hasattr(past_key_values, "to_legacy_cache"):
+        return past_key_values.to_legacy_cache()
+    if hasattr(past_key_values, "cache"):
+        return past_key_values.cache
+    return past_key_values
+
+
 class InstrumentedSpecDecoder:
     """
     KV 분석이 내장된 Speculative Decoding 실행기.
@@ -137,7 +148,7 @@ class InstrumentedSpecDecoder:
             t_verify = (time.perf_counter() - t0) * 1000
 
             target_logits = target_out.logits           # [1, total_len, vocab]
-            target_past_kv = target_out.past_key_values
+            target_past_kv = _normalize_past_kv(target_out.past_key_values)
 
             # Layer mapping 결정
             self._ensure_layer_mapping(draft_past_kv, target_past_kv)
@@ -301,7 +312,7 @@ class InstrumentedSpecDecoder:
                 )
 
             logit = out.logits[0, -1, :]  # [vocab]
-            past_kv = out.past_key_values
+            past_kv = _normalize_past_kv(out.past_key_values)
             token = logit.argmax().item()
 
             tokens.append(token)

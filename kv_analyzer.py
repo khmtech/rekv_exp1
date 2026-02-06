@@ -119,6 +119,9 @@ def _normalize_past_kv(past_key_values: Any):
     """
     if hasattr(past_key_values, "to_legacy_cache"):
         return past_key_values.to_legacy_cache()
+    # Some versions store legacy cache on .cache
+    if hasattr(past_key_values, "cache"):
+        return past_key_values.cache
     return past_key_values
 
 def extract_kv_at_position(
@@ -143,6 +146,9 @@ def extract_kv_at_position(
     if hasattr(past_key_values, 'key_cache'):
         k = past_key_values.key_cache[layer_idx]   # [batch, heads, seq, dim]
         v = past_key_values.value_cache[layer_idx]
+    # Some variants expose cache as list/tuple directly
+    elif hasattr(past_key_values, "cache") and isinstance(past_key_values.cache, (tuple, list)):
+        k, v = past_key_values.cache[layer_idx]
     # Tuple of tuples: ((k, v), (k, v), ...)
     elif isinstance(past_key_values, (tuple, list)):
         k, v = past_key_values[layer_idx]
@@ -158,6 +164,8 @@ def get_num_layers(past_key_values) -> int:
     past_key_values = _normalize_past_kv(past_key_values)
     if hasattr(past_key_values, "key_cache"):
         return len(past_key_values.key_cache)
+    elif hasattr(past_key_values, "cache") and isinstance(past_key_values.cache, (tuple, list)):
+        return len(past_key_values.cache)
     elif isinstance(past_key_values, (tuple, list)):
         return len(past_key_values)
     else:
