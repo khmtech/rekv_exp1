@@ -59,7 +59,8 @@ class RejectionEvent:
     sample_id: int
     round_id: int
     spec_length: int               # K: speculation window size
-    accept_length: int             # rejection ?꾧퉴吏 accept??token ??    rejection_pos_in_window: int   # speculation window ??rejection ?꾩튂 (0-indexed)
+    accept_length: int             # rejection ?꾧퉴吏 accept??token ??
+    rejection_pos_in_window: int   # speculation window ??rejection ?꾩튂 (0-indexed)
     rejection_pos_in_seq: int      # ?꾩껜 sequence?먯꽌??position
     draft_token_id: int
     target_token_id: int
@@ -235,8 +236,10 @@ def compare_kv_at_position(
         dk, dv = extract_kv_at_position(draft_past_kv, draft_l, position)
         tk, tv = extract_kv_at_position(target_past_kv, target_l, position)
 
-        # Head ??留욎텛湲?        min_heads = min(dk.shape[0], tk.shape[0])
-        # Head dim 留욎텛湲?        min_dim = min(dk.shape[1], tk.shape[1])
+        # Head ??留욎텛湲?
+        min_heads = min(dk.shape[0], tk.shape[0])
+        # Head dim 留욎텛湲?
+        min_dim = min(dk.shape[1], tk.shape[1])
 
         dk = dk[:min_heads, :min_dim].float()
         tk = tk[:min_heads, :min_dim].float()
